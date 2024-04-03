@@ -2,13 +2,15 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
 	"fmt"
-	"github.com/lukeroth/gdal"
+	"github.com/lao-tseu-is-alive/go-cloud-k8s-geo-search/golog"
+	"github.com/mattn/go-sqlite3"
 	"html/template"
 	"log"
-	"net/http"
 	"os"
 	"strconv"
+	"sync"
 )
 
 // a simple http server using go Mux from net/http package
@@ -70,69 +72,139 @@ func getHelloMsg(username string) (string, error) {
 	return tpl.String(), nil
 }
 
-// readGeopackage reads a geopackage file and returns a string with the content
-func readGeopackage(geopackageFilePath string) ([]string, error) {
-	ds, err := gdal.Open(geopackageFilePath, gdal.ReadOnly)
+// SQLITE3 is a struct to hold the connection to a sqlite3 database
+type SQLITE3 struct {
+	Conn *sql.DB
+	lck  sync.RWMutex // https://godoc.org/github.com/mxk/go-sqlite/sqlite3#hdr-Concurrency
+	log  golog.MyLogger
+}
+
+func NewSqlite3DB(geopackageFilePath string, log golog.MyLogger) (SQLITE3, error) {
+	var successOrFailure = "OK"
+	sql.Register("sqlite3_with_spatialite", &sqlite3.SQLiteDriver{
+		Extensions: []string{"mod_spatialite"},
+	})
+
+	// Load the geopackage
+
+	fmt.Println("--------------------------------------------------------------------------------------------")
+	db, err := sql.Open("sqlite3_with_spatialite", geopackageFilePath)
 	if err != nil {
-		return make([]string, 0), fmt.Errorf("could not open geopackage file: %s", geopackageFilePath)
+		successOrFailure = "FAILED"
+		log.Info("Connecting to Sqlite3 database %s :%s \n", geopackageFilePath, successOrFailure)
+		log.Fatal("💥 ERROR TRYING DB CONNECTION : %v ", err)
+	} else {
+		log.Info("Connecting to database %s : %s \n", geopackageFilePath, successOrFailure)
+		log.Info("Fetching one record to test if db connection is valid...\n")
+		var version string
+		getSqlite3Version := "SELECT sqlite_version();"
+		if errPing := db.QueryRow(getSqlite3Version).Scan(&version); errPing != nil {
+			log.Error("Connection is invalid ! ")
+			log.Fatal("DB ERROR scanning row: %s", errPing)
+		}
+		log.Info("SUCCESS Connecting to Sqlite3 version : [%s]", version)
 	}
-	defer ds.Close()
 
-	for dsFile := range ds.FileList() {
-		fmt.Println(dsFile)
+	fmt.Println("--------------------------------------------------------------------------------------------")
+
+	return SQLITE3{
+		Conn: db,
+		lck:  sync.RWMutex{},
+	}, err
+}
+
+func (db *SQLITE3) Close() {
+	err := db.Conn.Close()
+	if err != nil {
+		db.log.Error("problem doing db.Conn.Close(): %v", err)
 	}
+	return
+}
 
-	return ds.FileList(), nil
+func (db *SQLITE3) ExecActionQuery(sql string, arguments ...interface{}) (rowsAffected int, err error) {
+	db.lck.Lock()
+	defer db.lck.Unlock()
+	res, err := db.Conn.Exec(sql, arguments...)
+	if err != nil {
+		db.log.Error("Exec unexpectedly failed with %v: %v", sql, err)
+		return 0, err
+	}
+	rowsAff, err := res.RowsAffected()
+	if err != nil {
+		db.log.Error("RowsAffected unexpectedly failed with %v: %v", sql, err)
+		return 0, err
+	}
+	// golog.Info("Rows Affected : %v ", rowsAff)
+	return int(rowsAff), err
+}
+
+func (db *SQLITE3) GetQueryString(sql string, arguments ...interface{}) (result string, err error) {
+	db.lck.RLock()
+	defer db.lck.RUnlock()
+	err = db.Conn.QueryRow(sql, arguments...).Scan(&result)
+	if err != nil {
+		db.log.Error(" GetQueryString(%s) queryRow unexpectedly failed. args : (%v), error : %v\n", sql, arguments, err)
+		return "", err
+	}
+	return result, err
 }
 
 func main() {
-
-	listenAddr, err := GetPortFromEnv(defaultPort)
+	prefix := fmt.Sprintf("%s ", APP)
+	l, err := golog.NewLogger("zap", golog.DebugLevel, prefix)
 	if err != nil {
-		log.Fatalf("💥 ERROR: 'calling GetPortFromEnv()': %v", err)
+		log.Fatalf("💥 ERROR: 'calling NewLogger()': %v", err)
 	}
-	numOGRDriver := gdal.OGRDriverCount()
-	log.Printf("INFO: 'calling gdal.OGRDriverCount()': %d", numOGRDriver)
-	log.Printf("INFO: 'calling gdal/ogr version ': %d.%d", gdal.VERSION_MAJOR, gdal.VERSION_MINOR)
-	ogrDriver := gdal.OGRDriverByName("GPKG")
-	if ogrDriver == nil {
-		log.Fatalf("💥 ERROR: 'calling gdal.OGRDriverByName()': %v", err)
+	l.Info("Starting %s version :%s\n", APP, VERSION)
+	db, err := NewSqlite3DB(geopackageFilePath, l)
+	defer db.Close()
+	log.Printf("INFO: 'calling sql.Open()': geopackage %s loaded", geopackageFilePath)
+	//q := "SELECT InitSpatialMetaData();"
+	//db.ExecActionQuery(q)
+	spatialiteVersion, err := db.GetQueryString("SELECT spatialite_version();")
+	if err != nil {
+		l.Fatal("💥 ERROR: 'calling GetQueryString()': %v", err)
 	}
-	ds, ok := ogrDriver.Open(geopackageFilePath, 0)
-	if !ok {
-		log.Fatalf("💥 ERROR: 'calling ogrDriver.Open()': %v", err)
-	}
-	fmt.Printf("INFO: 'succes calling ogrDriver.Open(), found %d Layers'", ds.LayerCount())
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		defaultResponse := fmt.Sprintf("Hello from %s v%s", APP, VERSION)
+	l.Info("Spatialite version : %s", spatialiteVersion)
+	//db.GetQueryString("SELECT * FROM sqlite_master WHERE type='table';")
+	os.Exit(0)
+	/*
 
-		w.Header().Set("Content-Type", MIMEHtmlCharsetUTF8)
-		n, err := fmt.Fprintf(w, defaultResponse)
-		if err != nil {
-			log.Printf("ERROR: 'calling fmt.Fprintf()': %v", err)
-		}
-		log.Printf("INFO: 'calling fmt.Fprintf()': %d bytes written", n)
-	})
-	mux.HandleFunc("GET /hello/{name}", func(w http.ResponseWriter, r *http.Request) {
-		name := r.PathValue("name")
-		helloResponse, err := getHelloMsg(name)
-		if err != nil {
-			log.Printf("ERROR: 'calling getHelloMsg()': %v", err)
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			return
-		}
+		listenAddr, err := GetPortFromEnv(defaultPort)
+			if err != nil {
+				log.Fatalf("💥 ERROR: 'calling GetPortFromEnv()': %v", err)
+			}
 
-		w.Header().Set("Content-Type", MIMEHtmlCharsetUTF8)
-		n, err := fmt.Fprintf(w, helloResponse)
-		if err != nil {
-			log.Printf("ERROR: 'calling fmt.Fprintf()': %v", err)
-		}
-		log.Printf("INFO: 'calling fmt.Fprintf()': %d bytes written", n)
+			mux := http.NewServeMux()
+		mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+			defaultResponse := fmt.Sprintf("Hello from %s v%s", APP, VERSION)
 
-	})
+			w.Header().Set("Content-Type", MIMEHtmlCharsetUTF8)
+			n, err := fmt.Fprintf(w, defaultResponse)
+			if err != nil {
+				log.Printf("ERROR: 'calling fmt.Fprintf()': %v", err)
+			}
+			log.Printf("INFO: 'calling fmt.Fprintf()': %d bytes written", n)
+		})
+		mux.HandleFunc("GET /hello/{name}", func(w http.ResponseWriter, r *http.Request) {
+			name := r.PathValue("name")
+			helloResponse, err := getHelloMsg(name)
+			if err != nil {
+				log.Printf("ERROR: 'calling getHelloMsg()': %v", err)
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
 
-	log.Printf("Starting %s v%s on %s", APP, VERSION, listenAddr)
-	log.Fatal(http.ListenAndServe(listenAddr, mux))
+			w.Header().Set("Content-Type", MIMEHtmlCharsetUTF8)
+			n, err := fmt.Fprintf(w, helloResponse)
+			if err != nil {
+				log.Printf("ERROR: 'calling fmt.Fprintf()': %v", err)
+			}
+			log.Printf("INFO: 'calling fmt.Fprintf()': %d bytes written", n)
 
+		})
+
+		log.Printf("Starting %s v%s on %s", APP, VERSION, listenAddr)
+		log.Fatal(http.ListenAndServe(listenAddr, mux))
+	*/
 }
