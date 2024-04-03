@@ -16,13 +16,15 @@ import (
 // a simple http server using go Mux from net/http package
 
 const (
-	APP                 = "go-cloud-geo-search"
-	VERSION             = "0.0.1"
-	defaultPort         = 8099
-	charsetUTF8         = "charset=UTF-8"
-	MIMEHtml            = "text/html"
-	MIMEHtmlCharsetUTF8 = MIMEHtml + "; " + charsetUTF8
-	geopackageFilePath  = "geodata/swissBOUNDARIES3D_1_5_LV95_LN02.gpkg"
+	APP                   = "go-cloud-geo-search"
+	VERSION               = "0.0.1"
+	defaultPort           = 8099
+	charsetUTF8           = "charset=UTF-8"
+	MIMEHtml              = "text/html"
+	MIMEHtmlCharsetUTF8   = MIMEHtml + "; " + charsetUTF8
+	geopackageFilePath    = "geodata/swissBOUNDARIES3D_1_5_LV95_LN02.gpkg"
+	sqlListTables         = "SELECT name FROM sqlite_master WHERE type='table' AND name = 'gpkg_geometry_columns';"
+	sqlListGeometryTables = "SELECT table_name FROM gpkg_geometry_columns;"
 )
 
 // GetPortFromEnv returns a valid TCP/IP listening ':PORT' string based on the values of environment variable :
@@ -87,15 +89,15 @@ func NewSqlite3DB(geopackageFilePath string, log golog.MyLogger) (SQLITE3, error
 
 	// Load the geopackage
 
-	fmt.Println("--------------------------------------------------------------------------------------------")
+	log.Info("--------------->>NewSqlite3DB--------------")
 	db, err := sql.Open("sqlite3_with_spatialite", geopackageFilePath)
 	if err != nil {
 		successOrFailure = "FAILED"
-		log.Info("Connecting to Sqlite3 database %s :%s \n", geopackageFilePath, successOrFailure)
+		log.Info("Connecting to Sqlite3 database '%s' : %s ", geopackageFilePath, successOrFailure)
 		log.Fatal("💥 ERROR TRYING DB CONNECTION : %v ", err)
 	} else {
-		log.Info("Connecting to database %s : %s \n", geopackageFilePath, successOrFailure)
-		log.Info("Fetching one record to test if db connection is valid...\n")
+		log.Info("Connecting to Sqlite3 database '%s' : %s", geopackageFilePath, successOrFailure)
+		log.Info("Fetching one record to test if db connection is valid...")
 		var version string
 		getSqlite3Version := "SELECT sqlite_version();"
 		if errPing := db.QueryRow(getSqlite3Version).Scan(&version); errPing != nil {
@@ -104,8 +106,7 @@ func NewSqlite3DB(geopackageFilePath string, log golog.MyLogger) (SQLITE3, error
 		}
 		log.Info("SUCCESS Connecting to Sqlite3 version : [%s]", version)
 	}
-
-	fmt.Println("--------------------------------------------------------------------------------------------")
+	log.Info("---------------NewSqlite3DB>>--------------")
 
 	return SQLITE3{
 		Conn: db,
@@ -138,15 +139,71 @@ func (db *SQLITE3) ExecActionQuery(sql string, arguments ...interface{}) (rowsAf
 	return int(rowsAff), err
 }
 
+func (db *SQLITE3) GetQueryInt(sql string, arguments ...interface{}) (result int, err error) {
+	db.lck.RLock()
+	defer db.lck.RUnlock()
+	err = db.Conn.QueryRow(sql, arguments...).Scan(&result)
+	if err != nil {
+		db.log.Error("GetQueryInt(%s) queryRow unexpectedly failed. args : (%v), error : %v\n", sql, arguments, err)
+		return 0, err
+	}
+	return result, err
+}
+
+func (db *SQLITE3) GetQueryBool(sql string, arguments ...interface{}) (result bool, err error) {
+	db.lck.RLock()
+	defer db.lck.RUnlock()
+	err = db.Conn.QueryRow(sql, arguments...).Scan(&result)
+	if err != nil {
+		db.log.Error("GetQueryBool(%s) queryRow unexpectedly failed. args : (%v), error : %v\n", sql, arguments, err)
+		return false, err
+	}
+	return result, err
+}
+
 func (db *SQLITE3) GetQueryString(sql string, arguments ...interface{}) (result string, err error) {
 	db.lck.RLock()
 	defer db.lck.RUnlock()
 	err = db.Conn.QueryRow(sql, arguments...).Scan(&result)
 	if err != nil {
-		db.log.Error(" GetQueryString(%s) queryRow unexpectedly failed. args : (%v), error : %v\n", sql, arguments, err)
+		db.log.Error("GetQueryString(%s) queryRow unexpectedly failed. args : (%v), error : %v\n", sql, arguments, err)
 		return "", err
 	}
 	return result, err
+}
+
+func (db *SQLITE3) GetQueryStringArr(sql string, arguments ...interface{}) (result []string, err error) {
+	db.lck.RLock()
+	defer db.lck.RUnlock()
+	rows, err := db.Conn.Query(sql, arguments...)
+	if err != nil {
+		db.log.Error(" GetQueryString(%s) query unexpectedly failed. args : (%v), error : %v\n", sql, arguments, err)
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var val string
+		err = rows.Scan(&val)
+		if err != nil {
+			db.log.Error(" GetQueryString(%s) rows.Scan unexpectedly failed. args : (%v), error : %v\n", sql, arguments, err)
+			return nil, err
+		}
+		result = append(result, val)
+
+	}
+	return result, nil
+}
+
+func (db *SQLITE3) IsItGeopackage() bool {
+	db.lck.RLock()
+	defer db.lck.RUnlock()
+	// check if the geopackage is valid
+	number, err := db.GetQueryInt("SELECT count(*) as number FROM sqlite_master WHERE type='table' AND name = 'gpkg_geometry_columns';")
+	if err != nil {
+		db.log.Error("IsItGeopackage() query unexpectedly failed. error : %v\n", err)
+		return false
+	}
+	return number > 0
 }
 
 func main() {
@@ -155,17 +212,31 @@ func main() {
 	if err != nil {
 		log.Fatalf("💥 ERROR: 'calling NewLogger()': %v", err)
 	}
-	l.Info("Starting %s version :%s\n", APP, VERSION)
+	l.Info("Starting %s version :%s", APP, VERSION)
 	db, err := NewSqlite3DB(geopackageFilePath, l)
 	defer db.Close()
-	log.Printf("INFO: 'calling sql.Open()': geopackage %s loaded", geopackageFilePath)
-	//q := "SELECT InitSpatialMetaData();"
-	//db.ExecActionQuery(q)
+	l.Info("SUCCES calling NewSqlite3DB(%s)", geopackageFilePath)
+	//db.ExecActionQuery("SELECT InitSpatialMetaData();")
+	//check if the geopackage is valid
+	isItGeoPackage := db.IsItGeopackage()
+	if !isItGeoPackage {
+		l.Fatal("💥 ERROR: 'IsItGeopackage()': %v", err)
+	}
 	spatialiteVersion, err := db.GetQueryString("SELECT spatialite_version();")
 	if err != nil {
 		l.Fatal("💥 ERROR: 'calling GetQueryString()': %v", err)
 	}
 	l.Info("Spatialite version : %s", spatialiteVersion)
+
+	tables, err := db.GetQueryStringArr(sqlListGeometryTables)
+	l.Info("Listing Geometry tables :")
+	if err != nil {
+		l.Fatal("💥 ERROR: 'calling GetQueryStringArr(%s)': %v", sqlListGeometryTables, err)
+	}
+	for _, table := range tables {
+		l.Info("Table : %s", table)
+	}
+
 	//db.GetQueryString("SELECT * FROM sqlite_master WHERE type='table';")
 	os.Exit(0)
 	/*
