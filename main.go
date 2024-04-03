@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"github.com/lukeroth/gdal"
 	"html/template"
 	"log"
 	"net/http"
@@ -19,6 +20,7 @@ const (
 	charsetUTF8         = "charset=UTF-8"
 	MIMEHtml            = "text/html"
 	MIMEHtmlCharsetUTF8 = MIMEHtml + "; " + charsetUTF8
+	geopackageFilePath  = "geodata/swissBOUNDARIES3D_1_5_LV95_LN02.gpkg"
 )
 
 // GetPortFromEnv returns a valid TCP/IP listening ':PORT' string based on the values of environment variable :
@@ -68,13 +70,39 @@ func getHelloMsg(username string) (string, error) {
 	return tpl.String(), nil
 }
 
+// readGeopackage reads a geopackage file and returns a string with the content
+func readGeopackage(geopackageFilePath string) ([]string, error) {
+	ds, err := gdal.Open(geopackageFilePath, gdal.ReadOnly)
+	if err != nil {
+		return make([]string, 0), fmt.Errorf("could not open geopackage file: %s", geopackageFilePath)
+	}
+	defer ds.Close()
+
+	for dsFile := range ds.FileList() {
+		fmt.Println(dsFile)
+	}
+
+	return ds.FileList(), nil
+}
+
 func main() {
 
 	listenAddr, err := GetPortFromEnv(defaultPort)
 	if err != nil {
 		log.Fatalf("💥 ERROR: 'calling GetPortFromEnv()': %v", err)
 	}
-
+	numOGRDriver := gdal.OGRDriverCount()
+	log.Printf("INFO: 'calling gdal.OGRDriverCount()': %d", numOGRDriver)
+	log.Printf("INFO: 'calling gdal/ogr version ': %d.%d", gdal.VERSION_MAJOR, gdal.VERSION_MINOR)
+	ogrDriver := gdal.OGRDriverByName("GPKG")
+	if ogrDriver == nil {
+		log.Fatalf("💥 ERROR: 'calling gdal.OGRDriverByName()': %v", err)
+	}
+	ds, ok := ogrDriver.Open(geopackageFilePath, 0)
+	if !ok {
+		log.Fatalf("💥 ERROR: 'calling ogrDriver.Open()': %v", err)
+	}
+	fmt.Printf("INFO: 'succes calling ogrDriver.Open(), found %d Layers'", ds.LayerCount())
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		defaultResponse := fmt.Sprintf("Hello from %s v%s", APP, VERSION)
