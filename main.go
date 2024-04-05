@@ -224,9 +224,21 @@ func main() {
 	}
 	spatialiteVersion, err := db.GetQueryString("SELECT spatialite_version();")
 	if err != nil {
-		l.Fatal("💥 ERROR: 'calling GetQueryString()': %v", err)
+		l.Fatal("💥 ERROR: 'calling GetQueryString(SELECT spatialite_version())': %v", err)
 	}
 	l.Info("Spatialite version : %s", spatialiteVersion)
+
+	geosVersion, err := db.GetQueryString("SELECT geos_version();")
+	if err != nil {
+		l.Fatal("💥 ERROR: 'calling GetQueryString(SELECT geos_version)': %v", err)
+	}
+	l.Info("geosVersion version : %s", geosVersion)
+
+	hasGeoPackageExtension, err := db.GetQueryBool("SELECT HasGeoPackage();")
+	if err != nil {
+		l.Fatal("💥 ERROR: 'calling GetQueryBool(SELECT HasGeoPackage())': %v", err)
+	}
+	l.Info("Is GeoPackage extension present : %v", hasGeoPackageExtension)
 
 	tables, err := db.GetQueryStringArr(sqlListGeometryTables)
 	l.Info("Listing Geometry tables :")
