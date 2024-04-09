@@ -67,7 +67,7 @@ func main() {
 	}
 	defer db.Close()
 
-	l.Info("SUCCES calling NewSqlite3DB(%s)", geopackageFilePath)
+	l.Info("SUCCESS calling GetInstance(\"sqlite3\",%s)", geopackageFilePath)
 	//db.ExecActionQuery("SELECT InitSpatialMetaData();")
 	isItGeoPackage := db.IsItSpatial()
 	if !isItGeoPackage {
@@ -100,7 +100,6 @@ func main() {
 		l.Info("Table : %s", table)
 	}
 
-	//db.GetQueryString("SELECT * FROM sqlite_master WHERE type='table';")
 	os.Exit(0)
 	/*
 
