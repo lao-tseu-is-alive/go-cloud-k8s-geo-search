@@ -1,7 +1,7 @@
 package version
 
 var (
-	APP        = "go-cloud-geo-search"
+	APP        = "goCloudGeoSearch"
 	AppSnake   = "go-cloud-geo-search"
 	VERSION    = "0.0.1"
 	REPOSITORY = "github.com/lao-tseu-is-alive/go-cloud-geo-search"

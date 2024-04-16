@@ -19,7 +19,7 @@ const (
 	charsetUTF8           = "charset=UTF-8"
 	MIMEHtml              = "text/html"
 	MIMEHtmlCharsetUTF8   = MIMEHtml + "; " + charsetUTF8
-	geopackageFilePath    = "geodata/swissBOUNDARIES3D_1_5_LV95_LN02.gpkg"
+	geopackageFilePath    = "geodata/search.sqlite3"
 	sqlListTables         = "SELECT name FROM sqlite_master WHERE type='table' AND name = 'gpkg_geometry_columns';"
 	sqlListGeometryTables = "SELECT table_name FROM gpkg_geometry_columns;"
 )
