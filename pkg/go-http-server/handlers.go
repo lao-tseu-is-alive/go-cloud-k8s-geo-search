@@ -54,7 +54,7 @@ func (s *HttpServer) getHealthHandler() http.HandlerFunc {
 		}
 	}
 }
-func (s *HttpServer) getInfoHandler() http.HandlerFunc {
+func (s *HttpServer) getInfoHandler(urlPath string) http.HandlerFunc {
 	handlerName := "getInfoHandler"
 
 	s.logger.Info(initCallMsg, handlerName)
@@ -82,23 +82,27 @@ func (s *HttpServer) getInfoHandler() http.HandlerFunc {
 		s.logger.Error("💥💥 'GetOsUptime() returned an error : %+#v'", err)
 	}
 	k8sVersion := ""
+	k8sUrl := ""
+	latestK8sVersion := ""
 	k8sCurrentNameSpace := ""
-	k8sUrl, err := info.GetKubernetesApiUrlFromEnv()
-	if err != nil {
-		s.logger.Error("💥💥 'GetKubernetesApiUrlFromEnv() returned an error : %+#v'", err)
-	} else {
-		// here we can assume that we are inside a k8s container...
-		info, errConnInfo := info.GetKubernetesConnInfo(s.logger, defaultReadTimeout)
-		if errConnInfo.Err != nil {
-			s.logger.Error("💥💥 'GetKubernetesConnInfo() returned an error : %s : %+#v'", errConnInfo.Msg, errConnInfo.Err)
+	if info.IsRunningInsideKubernetes() {
+		k8sUrl, err = info.GetKubernetesApiUrlFromEnv(s.logger)
+		if err != nil {
+			s.logger.Error("💥💥 'GetKubernetesApiUrlFromEnv() returned an error : %+#v'", err)
+		} else {
+			// here we can assume that we are inside a k8s container...
+			k8sInfo, errConnInfo := info.GetKubernetesConnInfo(s.logger, defaultReadTimeout)
+			if errConnInfo.Err != nil {
+				s.logger.Error("💥💥 'GetKubernetesConnInfo() returned an error : %s : %+#v'", errConnInfo.Msg, errConnInfo.Err)
+			}
+			k8sVersion = k8sInfo.Version
+			k8sCurrentNameSpace = k8sInfo.CurrentNamespace
 		}
-		k8sVersion = info.Version
-		k8sCurrentNameSpace = info.CurrentNamespace
-	}
 
-	latestK8sVersion, err := info.GetKubernetesLatestVersion(s.logger)
-	if err != nil {
-		s.logger.Error("💥💥 'GetKubernetesLatestVersion() returned an error : %+#v'", err)
+		latestK8sVersion, err = info.GetKubernetesLatestVersion(s.logger)
+		if err != nil {
+			s.logger.Error("💥💥 'GetKubernetesLatestVersion() returned an error : %+#v'", err)
+		}
 	}
 
 	data := info.RuntimeInfo{
@@ -136,7 +140,7 @@ func (s *HttpServer) getInfoHandler() http.HandlerFunc {
 		s.logger.Info(formatTraceRequest, handlerName, r.Method, requestedUrlPath, remoteIp)
 		switch r.Method {
 		case http.MethodGet:
-			if len(strings.TrimSpace(requestedUrlPath)) == 0 || requestedUrlPath == "/info" {
+			if len(strings.TrimSpace(requestedUrlPath)) == 0 || requestedUrlPath == urlPath {
 				query := r.URL.Query()
 				nameValue := query.Get("name")
 				if nameValue != "" {

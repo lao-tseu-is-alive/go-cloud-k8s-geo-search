@@ -37,13 +37,14 @@ func (e *ErrorConfig) Error() string {
 //	KUBERNETES_SERVICE_HOST
 //	KUBERNETES_SERVICE_PORT
 //	in case the above ENV variables doesn't  exist the function returns an empty string and an error
-func GetKubernetesApiUrlFromEnv() (string, error) {
+func GetKubernetesApiUrlFromEnv(l golog.MyLogger) (string, error) {
 	srvPort := 443
 	k8sApiUrl := "https://"
 
 	var err error
 	val, exist := os.LookupEnv("KUBERNETES_SERVICE_HOST")
 	if !exist {
+		l.Warn("GetKubernetesApiUrlFromEnv: KUBERNETES_SERVICE_HOST ENV variable does not exist (not inside K8s ?).")
 		return "", &ErrorConfig{
 			Err: err,
 			Msg: "ERROR: KUBERNETES_SERVICE_HOST ENV variable does not exist (not inside K8s ?).",
@@ -113,7 +114,7 @@ func GetKubernetesConnInfo(l golog.MyLogger, defaultReadTimeout time.Duration) (
 	}
 	info.CaCert = string(K8sCaCert)
 
-	k8sUrl, err := GetKubernetesApiUrlFromEnv()
+	k8sUrl, err := GetKubernetesApiUrlFromEnv(l)
 	if err != nil {
 		return &info, ErrorConfig{
 			Err: err,
@@ -217,4 +218,14 @@ func GetKubernetesLatestVersion(l golog.MyLogger) (string, error) {
 	// latestRelease := matches[0]
 	// fmt.Printf("\nThe latest major release of Kubernetes is %T : %v+", latestRelease, latestRelease)
 	return fmt.Sprintf("%2.2f", maxVersion), nil
+}
+
+// IsRunningInsideKubernetes returns true if running inside k8s orchestrator y checking if KUBERNETES_SERVICE_HOST is defined
+func IsRunningInsideKubernetes() bool {
+	// https://kubernetes.io/docs/tutorials/services/connect-applications-service/#environment-variables
+	_, exist := os.LookupEnv("KUBERNETES_SERVICE_HOST")
+	if exist {
+		return true
+	}
+	return false
 }

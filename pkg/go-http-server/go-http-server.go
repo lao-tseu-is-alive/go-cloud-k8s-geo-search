@@ -110,9 +110,17 @@ func (s *HttpServer) jsonResponse(w http.ResponseWriter, result interface{}) {
 	}
 }
 
-// StartServer initializes all the handlers paths of this web server, it is called inside the NewGoHttpServer constructor
-func (s *HttpServer) StartServer() error {
+// routes initializes all the default handlers paths of this web server, it is called inside the StartServer constructor
+func (s *HttpServer) routes() {
+	// Adding the default handlers to the server mux
+	s.srvMux.Handle("/readiness", s.getReadinessHandler())
+	s.srvMux.Handle("/health", s.getHealthHandler())
+	s.srvMux.Handle("/info", s.getInfoHandler("/info"))
+}
 
+// StartServer will start the http server in his own goroutine
+func (s *HttpServer) StartServer() error {
+	s.routes() // Adding the default handlers to the server mux
 	// Starting the web server in his own goroutine
 	go func() {
 		s.logger.Info("starting http server listening at %s://localhost%s/", defaultProtocol, s.listenAddr)
