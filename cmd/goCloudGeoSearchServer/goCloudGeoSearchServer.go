@@ -1,6 +1,7 @@
 package main
 
 import (
+	"embed"
 	"fmt"
 	"github.com/lao-tseu-is-alive/go-cloud-k8s-common-libs/pkg/config"
 	"github.com/lao-tseu-is-alive/go-cloud-k8s-common-libs/pkg/golog"
@@ -12,6 +13,11 @@ import (
 const (
 	defaultPort = 8099
 )
+
+// content holds our static web server content.
+//
+//go:embed goCloudGeoSearchFront/dist/*
+var content embed.FS
 
 func main() {
 

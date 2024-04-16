@@ -1,0 +1,25 @@
+{
+  "name": "gocloudgeosearchfront",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "ol": "^9.1.0",
+    "ol-layerswitcher": "^4.1.1",
+    "proj4": "^2.11.0",
+    "vue": "^3.4.21"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.7",
+    "@types/proj4": "^2.5.5",
+    "@vitejs/plugin-vue": "^5.0.4",
+    "typescript": "^5.2.2",
+    "vite": "^5.2.0",
+    "vue-tsc": "^2.0.6"
+  }
+}
